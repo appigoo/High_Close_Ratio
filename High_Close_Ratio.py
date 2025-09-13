@@ -38,12 +38,24 @@ if st.button("开始回测"):
             if data.empty:
                 st.error("数据下载失败，请检查股票代码或范围。")
             else:
-                st.success(f"数据下载成功！范围: {period}, 共 {len(data)} 条记录。")
-                
-                # 修复 MultiIndex 列（常见于 yfinance）
+                # 修复列名问题：处理 MultiIndex 和重复
                 if isinstance(data.columns, pd.MultiIndex):
                     st.info("检测到 MultiIndex 列，正在扁平化...")
-                    data.columns = data.columns.droplevel(0)  # 移除顶层（如 ticker 名称）
+                    # 使用 get_level_values(0) 获取底层列名，避免重复
+                    data.columns = data.columns.get_level_values(0)
+                
+                # 检查并移除重复列（如果 droplevel 后仍有）
+                if data.columns.duplicated().any():
+                    st.warning("检测到重复列，正在清理...")
+                    data = data.loc[:, ~data.columns.duplicated()]
+                
+                # 确保标准列顺序（OHLCVA）
+                expected_cols = ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+                if not all(col in data.columns for col in expected_cols):
+                    st.error("数据列不完整，请重试。")
+                    st.stop()
+                
+                st.success(f"数据下载成功！范围: {period}, 共 {len(data)} 条记录。")
                 
                 st.write("数据概览：")
                 st.dataframe(data.head())
@@ -59,6 +71,7 @@ if st.button("开始回测"):
                 )
         except Exception as e:
             st.error(f"下载数据出错：{e}")
+            st.code(traceback.format_exc())  # 显示完整错误
             st.stop()
 
     try:
@@ -67,15 +80,13 @@ if st.button("开始回测"):
         st.write(f"Data shape: {data.shape}")
         st.write(f"Data columns: {data.columns.tolist()}")
         st.write(f"Columns type: {type(data.columns)}")
-        if isinstance(data.columns, pd.MultiIndex):
-            st.write(f"MultiIndex levels: {data.columns.levels}")
         st.write(f"Volume type: {type(data['Volume'])}")
         st.write(f"Volume shape: {data['Volume'].shape if hasattr(data['Volume'], 'shape') else 'No shape'}")
 
         # 计算指标 - 强制转换为 Series
         sma_series = data['Close'].rolling(window=sma_period).mean()
         if isinstance(sma_series, pd.DataFrame):
-            sma_series = sma_series.iloc[:, 0]  # 提取第一列
+            sma_series = sma_series.iloc[:, 0]
         data['SMA'] = sma_series.fillna(0)
 
         avg_volume_series = data['Volume'].rolling(window=20).mean()
@@ -171,4 +182,4 @@ if st.button("开始回测"):
 
 # 页脚
 st.sidebar.markdown("---")
-st.sidebar.info("说明：\n- 强势趋势：收盘 > SMA(20)\n- 放量高收：收盘/最高 ≥ 0.98 且 量 > 20日均量 1.5x\n- 回测基于历史数据，不保证未来表现。\n- 支持下载原始数据和信号 CSV。\n- 新增 MultiIndex 修复，如仍有问题查看调试信息。")
+st.sidebar.info("说明：\n- 强势趋势：收盘 > SMA(20)\n- 放量高收：收盘/最高 ≥ 0.98 且 量 > 20日均量 1.5x\n- 回测基于历史数据，不保证未来表现。\n- 支持下载原始数据和信号 CSV。\n- 已修复列名重复问题，如仍有错误查看 traceback。")
