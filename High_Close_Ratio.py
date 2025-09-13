@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 import io  # 用于 CSV 下载
+import traceback  # 用于错误调试
 
 # 设置页面标题
 st.title("TSLA (或其他股票) 强势趋势 + 放量高收 回测工具")
@@ -54,11 +55,26 @@ if st.button("开始回测"):
             st.error(f"下载数据出错：{e}")
             st.stop()
 
-    # 计算指标
-    data['SMA'] = data['Close'].rolling(window=sma_period).mean()
-    data['Avg_Volume'] = data['Volume'].rolling(window=20).mean()
-    data['High_Close_Ratio'] = data['Close'] / data['High']
-    data['Volume_Ratio'] = data['Volume'] / data['Avg_Volume']
+    try:
+        # 诊断打印（可选，生产时可移除）
+        st.write("**调试信息**（可选查看）：")
+        st.write(f"Data shape: {data.shape}")
+        st.write(f"Data columns: {data.columns.tolist()}")
+
+        # 计算指标 - 添加 squeeze() 和 fillna() 修复形状问题
+        data['SMA'] = data['Close'].rolling(window=sma_period).mean().squeeze().fillna(0)
+        data['Avg_Volume'] = data['Volume'].rolling(window=20).mean().squeeze().fillna(0)
+        data['High_Close_Ratio'] = (data['Close'] / data['High']).squeeze().fillna(0)
+        data['Volume_Ratio'] = (data['Volume'] / data['Avg_Volume']).squeeze().fillna(0)
+
+        # 验证修复
+        st.write(f"Volume_Ratio type after fix: {type(data['Volume_Ratio'])}")
+        st.write(f"Volume_Ratio shape: {data['Volume_Ratio'].shape if hasattr(data['Volume_Ratio'], 'shape') else 'OK'}")
+
+    except Exception as calc_error:
+        st.error(f"计算指标出错：{calc_error}")
+        st.code(traceback.format_exc())  # 显示完整 traceback
+        st.stop()
 
     # 定义信号：强势趋势 + 放量高收
     data['Strong_Trend'] = data['Close'] > data['SMA']
@@ -92,7 +108,7 @@ if st.button("开始回测"):
         st.subheader("满足条件的日子详情")
         signals_display = signals[['Close', 'High_Close_Ratio', 'Volume_Ratio', 'Next_Close', 'Return', 'Success']].copy()
         signals_display['Success'] = signals_display['Success'].map({True: '是', False: '否'})
-        signals_display['Return'] = signals_display['Return'].map(lambda x: f"{x*100:.2f}%")
+        signals_display['Return'] = signals_display['Return'].map(lambda x: f"{x*100:.2f}%" if pd.notna(x) else 'N/A')
         st.dataframe(signals_display)
 
         # 添加信号 CSV 下载
@@ -131,4 +147,4 @@ if st.button("开始回测"):
 
 # 页脚
 st.sidebar.markdown("---")
-st.sidebar.info("说明：\n- 强势趋势：收盘 > SMA(20)\n- 放量高收：收盘/最高 ≥ 0.98 且 量 > 20日均量 1.5x\n- 回测基于历史数据，不保证未来表现。\n- 支持下载原始数据和信号 CSV。")
+st.sidebar.info("说明：\n- 强势趋势：收盘 > SMA(20)\n- 放量高收：收盘/最高 ≥ 0.98 且 量 > 20日均量 1.5x\n- 回测基于历史数据，不保证未来表现。\n- 支持下载原始数据和信号 CSV。\n- 如仍有错误，请检查调试信息。")
